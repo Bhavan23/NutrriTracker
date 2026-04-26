@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>NutriTrack — Protein & Calories</title>
+  <meta name="description" content="Track your daily protein and calories intake" />
+  <meta name="theme-color" content="#0b0f1a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NutriTrack" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body {
+      background: #0b0f1a;
+      font-family: 'DM Sans', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 4px; outline: none; cursor: pointer; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a3248; border-radius: 4px; }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+    .slide-up { animation: slideUp 0.35s cubic-bezier(.4,2,.5,1) both; }
+    .fade-in  { animation: fadeIn 0.25s ease both; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Storage helpers (localStorage for real persistence) ─────────────────────
+const load = (key, def) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } };
+const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const DEFAULT_GOALS = { calories: 2200, protein: 150 };
+
+const PRESETS = [
+  { name: "Chicken Breast (100g)", protein: 31, calories: 165 },
+  { name: "Egg (1 large)",          protein: 6,  calories: 72  },
+  { name: "Greek Yogurt (200g)",    protein: 20, calories: 130 },
+  { name: "Protein Shake",          protein: 25, calories: 150 },
+  { name: "Oats (80g dry)",         protein: 11, calories: 307 },
+  { name: "Salmon (150g)",          protein: 34, calories: 280 },
+  { name: "Cottage Cheese (200g)",  protein: 24, calories: 180 },
+  { name: "Brown Rice (150g)",      protein: 4,  calories: 195 },
+  { name: "Banana",                 protein: 1,  calories: 89  },
+  { name: "Almonds (30g)",          protein: 6,  calories: 174 },
+  { name: "Tuna (100g)",            protein: 29, calories: 132 },
+  { name: "Milk (250ml)",           protein: 8,  calories: 150 },
+  { name: "Paneer (100g)",          protein: 18, calories: 265 },
+  { name: "Lentils (100g cooked)",  protein: 9,  calories: 116 },
+  { name: "Tofu (100g)",            protein: 8,  calories: 76  },
+];
+
+const REMINDER_SCHEDULE = [
+  { h: 8,  m: 0,  label: "8:00 AM",  icon: "🌅", msg: "Morning check-in! Log your breakfast 🥣" },
+  { h: 13, m: 0,  label: "1:00 PM",  icon: "☀️", msg: "Halfway there! Don't forget to log lunch 🥗" },
+  { h: 19, m: 0,  label: "7:00 PM",  icon: "🌙", msg: "Evening check-in — how's your protein goal? 💪" },
+];
+
+// ── Ring component ───────────────────────────────────────────────────────────
+function Ring({ value, max, color, size = 128, stroke = 12, label, unit, emoji }) {
+  const r    = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct  = Math.min(value / Math.max(max, 1), 1);
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <div style={{ position:"relative", width:size, height:size }}>
+        <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e2535" strokeWidth={stroke}/>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+            strokeDasharray={`${pct*circ} ${circ}`} strokeLinecap="round"
+            style={{ transition:"stroke-dasharray 0.7s cubic-bezier(.4,2,.6,1)" }}/>
+        </svg>
+        <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontSize:14 }}>{emoji}</span>
+          <span style={{ fontSize:20, fontWeight:800, color:"#f0f4ff", fontFamily:"'Syne',sans-serif", lineHeight:1.1 }}>{value}</span>
+          <span style={{ fontSize:9, color:"#4b5a7a", fontWeight:700, letterSpacing:1 }}>{unit}</span>
+        </div>
+      </div>
+      <span style={{ fontSize:11, color:"#4b5a7a", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase" }}>{label}</span>
+      <span style={{ fontSize:10, color, fontWeight:600 }}>{Math.round(pct*100)}% of {max}{unit}</span>
+    </div>
+  );
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function Toast({ msg, type }) {
+  const bg  = type === "error" ? "#2a1a1a" : "#0f2a20";
+  const col = type === "error" ? "#f87171" : "#22d3a0";
+  const bdr = type === "error" ? "#f8717140" : "#22d3a040";
+  return (
+    <div style={{
+      position:"fixed", bottom:100, left:"50%",
+      transform:"translateX(-50%)",
+      background:bg, color:col, border:`1px solid ${bdr}`,
+      borderRadius:20, padding:"12px 22px",
+      fontWeight:600, fontSize:14, whiteSpace:"nowrap",
+      zIndex:9999, boxShadow:"0 8px 32px #000a",
+      animation:"toastIn 0.3s ease both"
+    }}>{msg}</div>
+  );
+}
+
+// ── Main App ─────────────────────────────────────────────────────────────────
+function App() {
+  const [tab,          setTab]          = useState(0);
+  const [goals,        setGoals]        = useState(() => load("nt_goals", DEFAULT_GOALS));
+  const [editGoals,    setEditGoals]    = useState(() => load("nt_goals", DEFAULT_GOALS));
+  const [log,          setLog]          = useState(() => load("nt_log", []));
+  const [notifEnabled, setNotifEnabled] = useState(() => load("nt_notif", false));
+  const [toast,        setToast]        = useState(null);
+  const [mealForm,     setMealForm]     = useState({ name:"", calories:"", protein:"" });
+  const [preset,       setPreset]       = useState("");
+  const timerRef = useRef(null);
+
+  const today     = new Date().toISOString().slice(0,10);
+  const todayLog  = log.filter(e => e.date === today);
+  const totalCal  = todayLog.reduce((s,e) => s + e.calories, 0);
+  const totalProt = todayLog.reduce((s,e) => s + e.protein,  0);
+  const remCal    = Math.max(0, goals.calories - totalCal);
+  const remProt   = Math.max(0, goals.protein  - totalProt);
+
+  // Persist
+  useEffect(() => save("nt_goals", goals), [goals]);
+  useEffect(() => save("nt_log",   log),   [log]);
+  useEffect(() => save("nt_notif", notifEnabled), [notifEnabled]);
+
+  // Reminder interval
+  useEffect(() => {
+    if (notifEnabled) startReminders();
+    else stopReminders();
+    return stopReminders;
+  }, [notifEnabled]);
+
+  const startReminders = () => {
+    stopReminders();
+    timerRef.current = setInterval(() => {
+      if (Notification.permission !== "granted") return;
+      const now = new Date();
+      REMINDER_SCHEDULE.forEach(r => {
+        if (now.getHours() === r.h && now.getMinutes() === r.m) {
+          new Notification("NutriTrack Reminder", { body: r.msg, icon:"icon-192.png" });
+        }
+      });
+    }, 59000);
+  };
+  const stopReminders = () => { if (timerRef.current) clearInterval(timerRef.current); };
+
+  const showToast = (msg, type="success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  const toggleNotif = async () => {
+    if (notifEnabled) {
+      setNotifEnabled(false);
+      showToast("🔕 Reminders disabled");
+      return;
+    }
+    if (!("Notification" in window)) { showToast("Notifications not supported","error"); return; }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      setNotifEnabled(true);
+      showToast("🔔 Reminders enabled!");
+      new Notification("NutriTrack 💪", { body:"Daily reminders set for 8am, 1pm & 7pm!", icon:"icon-192.png" });
+    } else {
+      showToast("Permission denied","error");
+    }
+  };
+
+  const testNotif = () => {
+    if (Notification.permission === "granted") {
+      new Notification("NutriTrack Daily Summary 📊", {
+        body: `Calories: ${totalCal}/${goals.calories} kcal · Protein: ${totalProt}/${goals.protein}g`,
+        icon: "icon-192.png"
+      });
+    } else { showToast("Enable notifications first","error"); }
+  };
+
+  const applyPreset = (name) => {
+    const p = PRESETS.find(f => f.name === name);
+    if (p) { setMealForm({ name:p.name, calories:p.calories, protein:p.protein }); setPreset(name); }
+  };
+
+  const addMeal = () => {
+    const cal  = parseInt(mealForm.calories);
+    const prot = parseInt(mealForm.protein);
+    if (!mealForm.name || isNaN(cal) || isNaN(prot) || cal < 0 || prot < 0) {
+      showToast("Please fill all fields correctly","error"); return;
+    }
+    const entry = {
+      id:   Date.now(),
+      date: today,
+      name: mealForm.name,
+      calories: cal,
+      protein:  prot,
+      time: new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })
+    };
+    const newLog = [...log, entry];
+    setLog(newLog);
+    setMealForm({ name:"", calories:"", protein:"" });
+    setPreset("");
+    showToast(`✅ ${entry.name} logged!`);
+    // Goal notifications
+    if (notifEnabled && Notification.permission === "granted") {
+      if (totalCal + cal  >= goals.calories)  new Notification("🎯 Calorie Goal Reached!",  { body:`Hit your ${goals.calories} kcal target today!` });
+      if (totalProt + prot >= goals.protein)  new Notification("💪 Protein Goal Reached!",  { body:`Hit your ${goals.protein}g protein target!` });
+    }
+    setTab(0);
+  };
+
+  const deleteEntry = (id) => { setLog(prev => prev.filter(e => e.id !== id)); showToast("Entry removed"); };
+
+  const saveGoals = () => {
+    setGoals({ ...editGoals });
+    showToast("✅ Goals saved!");
+    setTab(0);
+  };
+
+  // History grouped by date descending
+  const grouped = {};
+  [...log].reverse().forEach(e => { if (!grouped[e.date]) grouped[e.date]=[]; grouped[e.date].push(e); });
+
+  // ── Tabs content ────────────────────────────────────────────────────────────
+  const dateLabel = new Date().toLocaleDateString("en-US",{ weekday:"long", month:"short", day:"numeric" });
+
+  return (
+    <div style={{ maxWidth:430, margin:"0 auto", height:"100dvh", display:"flex", flexDirection:"column", background:"#111827", position:"relative", overflow:"hidden" }}>
+
+      {/* Status bar */}
+      <div style={{ background:"#0d1120", padding:"12px 24px 8px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+        <span style={{ color:"#f0f4ff", fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:13 }}>
+          {new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+        </span>
+        <div style={{ display:"flex", gap:5, fontSize:12 }}><span>📶</span><span>🔋</span></div>
+      </div>
+
+      {/* Header */}
+      <div style={{ background:"#0d1120", padding:"2px 20px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+        <div>
+          <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:26, color:"#f0f4ff", letterSpacing:-0.5 }}>
+            Nutri<span style={{ color:"#22d3a0" }}>Track</span>
+          </div>
+          <div style={{ color:"#3a4a68", fontSize:12, fontWeight:500 }}>{dateLabel}</div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          {notifEnabled && (
+            <button onClick={testNotif} style={{ background:"#1e2535", border:"none", borderRadius:12, width:40, height:40, cursor:"pointer", fontSize:18 }}>📊</button>
+          )}
+          <button onClick={toggleNotif} style={{
+            background: notifEnabled ? "#22d3a0" : "#1e2535",
+            border:"none", borderRadius:12, width:40, height:40,
+            cursor:"pointer", fontSize:18,
+            boxShadow: notifEnabled ? "0 0 14px #22d3a060" : "none",
+            transition:"all 0.2s"
+          }}>{notifEnabled ? "🔔" : "🔕"}</button>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex:1, overflowY:"auto", paddingBottom:4 }}>
+
+        {/* ── TODAY ── */}
+        {tab === 0 && (
+          <div className="slide-up" style={{ padding:"16px 16px 0" }}>
+            {/* Rings card */}
+            <div style={{ background:"linear-gradient(135deg,#131d2e,#0d1624)", borderRadius:24, padding:"22px 12px", display:"flex", justifyContent:"space-around", border:"1px solid #1e2d45", marginBottom:14 }}>
+              <Ring value={totalCal}  max={goals.calories} color="#f59e0b" label="Calories" unit="kcal" emoji="🔥" />
+              <Ring value={totalProt} max={goals.protein}  color="#22d3a0" label="Protein"  unit="g"    emoji="💪" />
+            </div>
+
+            {/* Stats row */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+              {[
+                { label:"Cal Remaining",  val:remCal,  unit:"kcal", color:"#f59e0b", icon:"🎯" },
+                { label:"Prot Remaining", val:remProt, unit:"g",    color:"#22d3a0", icon:"🏁" },
+              ].map(c => (
+                <div key={c.label} style={{ background:"#131d2e", borderRadius:18, padding:"14px", border:"1px solid #1e2d45" }}>
+                  <div style={{ fontSize:20, marginBottom:4 }}>{c.icon}</div>
+                  <div style={{ fontFamily:"'Syne',sans-serif", fontSize:24, fontWeight:800, color:c.color }}>
+                    {c.val}<span style={{ fontSize:11, color:"#4b5a7a", marginLeft:2, fontFamily:"'DM Sans',sans-serif", fontWeight:500 }}>{c.unit}</span>
+                  </div>
+                  <div style={{ color:"#3a4a68", fontSize:11, fontWeight:600, letterSpacing:0.3 }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Meals */}
+            <div style={{ color:"#3a4a68", fontSize:11, fontWeight:700, letterSpacing:2, textTransform:"uppercase", marginBottom:10 }}>Today's Log</div>
+            {todayLog.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"32px 16px", border:"2px dashed #1e2535", borderRadius:20, marginBottom:14 }}>
+                <div style={{ fontSize:36, marginBottom:8 }}>🍽️</div>
+                <div style={{ color:"#3a4a68", fontWeight:600 }}>No meals logged yet</div>
+                <div style={{ color:"#1e2535", fontSize:12, marginTop:4 }}>Tap <b style={{color:"#22d3a0"}}>Add</b> to get started</div>
+              </div>
+            ) : todayLog.map((e,i) => (
+              <div key={e.id} style={{
+                background:"#131d2e", borderRadius:16, padding:"12px 14px",
+                marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center",
+                border:"1px solid #1a2540",
+                animation:`slideUp 0.3s ${i*0.05}s both`
+              }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ color:"#e0e8ff", fontWeight:600, fontSize:14 }}>{e.name}</div>
+                  <div style={{ color:"#2a3a58", fontSize:11, marginTop:2 }}>🕐 {e.time}</div>
+                </div>
+                <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                  <span style={{ color:"#f59e0b", fontWeight:700, fontSize:13 }}>{e.calories} kcal</span>
+                  <span style={{ color:"#22d3a0", fontWeight:700, fontSize:13 }}>{e.protein}g</span>
+                  <button onClick={() => deleteEntry(e.id)} style={{
+                    background:"#1e2535", border:"none", borderRadius:8, width:28, height:28,
+                    cursor:"pointer", color:"#4b5a7a", fontSize:14
+                  }}>✕</button>
+                </div>
+              </div>
+            ))}
+
+            {/* Notif CTA */}
+            {!notifEnabled && (
+              <div onClick={toggleNotif} style={{
+                marginTop:4, background:"linear-gradient(135deg,#0f2027,#1a2f40)",
+                borderRadius:18, padding:"14px 18px", cursor:"pointer",
+                border:"1px solid #22d3a020", display:"flex", alignItems:"center", gap:12
+              }}>
+                <span style={{ fontSize:26 }}>🔔</span>
+                <div>
+                  <div style={{ color:"#22d3a0", fontWeight:700, fontSize:13 }}>Enable Reminders</div>
+                  <div style={{ color:"#3a4a68", fontSize:11 }}>Get notified at 8am, 1pm & 7pm</div>
+                </div>
+                <div style={{ marginLeft:"auto", color:"#22d3a0", fontSize:20 }}>›</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ADD MEAL ── */}
+        {tab === 1 && (
+          <div className="slide-up" style={{ padding:"16px" }}>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:"#f0f4ff", marginBottom:2 }}>Add Meal</div>
+            <div style={{ color:"#3a4a68", fontSize:12, marginBottom:18 }}>Log food to track your intake</div>
+
+            {/* Quick presets */}
+            <div style={{ color:"#3a4a68", fontSize:11, fontWeight:700, letterSpacing:1.5, marginBottom:8, textTransform:"uppercase" }}>Quick Add</div>
+            <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom:18 }}>
+              {PRESETS.map(p => (
+                <button key={p.name} onClick={() => applyPreset(p.name)} style={{
+                  background: preset === p.name ? "#22d3a0" : "#131d2e",
+                  color:      preset === p.name ? "#0b0f1a" : "#6b7a99",
+                  border:    `1px solid ${preset === p.name ? "#22d3a0" : "#1e2535"}`,
+                  borderRadius:20, padding:"6px 12px", fontSize:11,
+                  fontWeight:600, cursor:"pointer", transition:"all 0.15s",
+                  fontFamily:"'DM Sans',sans-serif"
+                }}>{p.name.split(" (")[0]}</button>
+              ))}
+            </div>
+
+            {/* Form fields */}
+            {[
+              { label:"Food Name",       key:"name",     type:"text",   placeholder:"e.g. Chicken Breast" },
+              { label:"Calories (kcal)", key:"calories", type:"number", placeholder:"e.g. 250" },
+              { label:"Protein (g)",     key:"protein",  type:"number", placeholder:"e.g. 30" },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom:14 }}>
+                <div style={{ color:"#3a4a68", fontSize:11, fontWeight:700, letterSpacing:1.5, marginBottom:6, textTransform:"uppercase" }}>{f.label}</div>
+                <input
+                  type={f.type}
+                  value={mealForm[f.key]}
+                  onChange={e => setMealForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  style={{
+                    width:"100%", background:"#131d2e", border:"1.5px solid #1e2d45",
+                    borderRadius:14, padding:"13px 16px", color:"#e0e8ff",
+                    fontSize:15, fontFamily:"'DM Sans',sans-serif", outline:"none",
+                    transition:"border 0.2s"
+                  }}
+                  onFocus={e  => e.target.style.borderColor = "#22d3a0"}
+                  onBlur={e   => e.target.style.borderColor = "#1e2d45"}
+                />
+              </div>
+            ))}
+
+            <button onClick={addMeal} style={{
+              width:"100%", background:"linear-gradient(135deg,#22d3a0,#0fa872)",
+              border:"none", borderRadius:16, padding:"16px",
+              color:"#0b0f1a", fontWeight:800, fontSize:16,
+              fontFamily:"'Syne',sans-serif", cursor:"pointer",
+              boxShadow:"0 8px 24px #22d3a035", marginTop:4, letterSpacing:0.5
+            }}>+ Log This Meal</button>
+          </div>
+        )}
+
+        {/* ── GOALS ── */}
+        {tab === 2 && (
+          <div className="slide-up" style={{ padding:"16px" }}>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:"#f0f4ff", marginBottom:2 }}>Daily Goals</div>
+            <div style={{ color:"#3a4a68", fontSize:12, marginBottom:22 }}>Personalise your nutrition targets</div>
+
+            {[
+              { label:"Calorie Goal", key:"calories", unit:"kcal", color:"#f59e0b", icon:"🔥", min:1000, max:4000, step:50,  hint:"Typical: 1500–3000 kcal" },
+              { label:"Protein Goal", key:"protein",  unit:"g",    color:"#22d3a0", icon:"💪", min:50,   max:300,  step:5,   hint:"0.8–2.2g per kg bodyweight" },
+            ].map(g => (
+              <div key={g.key} style={{ marginBottom:24 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                  <div>
+                    <div style={{ color:"#c0cce8", fontWeight:700, fontSize:15 }}>{g.icon} {g.label}</div>
+                    <div style={{ color:"#2a3a58", fontSize:11, marginTop:2 }}>{g.hint}</div>
+                  </div>
+                  <div style={{ fontFamily:"'Syne',sans-serif", fontSize:22, fontWeight:800, color:g.color }}>
+                    {editGoals[g.key]}<span style={{ fontSize:12, color:"#4b5a7a", marginLeft:2 }}>{g.unit}</span>
+                  </div>
+                </div>
+                <input type="range" min={g.min} max={g.max} step={g.step} value={editGoals[g.key]}
+                  onChange={e => setEditGoals(p => ({ ...p, [g.key]: +e.target.value }))}
+                  style={{ width:"100%", accentColor:g.color }}
+                />
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                  <span style={{ color:"#1e2d45", fontSize:10 }}>{g.min}{g.unit}</span>
+                  <span style={{ color:"#1e2d45", fontSize:10 }}>{g.max}{g.unit}</span>
+                </div>
+                <input type="number" value={editGoals[g.key]}
+                  onChange={e => setEditGoals(p => ({ ...p, [g.key]: +e.target.value }))}
+                  style={{
+                    marginTop:8, width:"100%", background:"#131d2e",
+                    border:"1.5px solid #1e2d45", borderRadius:12,
+                    padding:"10px 14px", color:"#e0e8ff",
+                    fontSize:14, fontFamily:"'DM Sans',sans-serif", outline:"none"
+                  }}
+                  onFocus={e => e.target.style.borderColor = g.color}
+                  onBlur={e  => e.target.style.borderColor = "#1e2d45"}
+                />
+              </div>
+            ))}
+
+            <button onClick={saveGoals} style={{
+              width:"100%", background:"linear-gradient(135deg,#22d3a0,#0fa872)",
+              border:"none", borderRadius:16, padding:"16px",
+              color:"#0b0f1a", fontWeight:800, fontSize:16,
+              fontFamily:"'Syne',sans-serif", cursor:"pointer",
+              boxShadow:"0 8px 24px #22d3a035"
+            }}>Save Goals</button>
+
+            {/* Notification schedule card */}
+            <div style={{ marginTop:22, background:"#131d2e", borderRadius:20, padding:"18px", border:"1px solid #1e2d45" }}>
+              <div style={{ color:"#c0cce8", fontWeight:700, fontSize:14, marginBottom:14 }}>🔔 Daily Reminders</div>
+              {REMINDER_SCHEDULE.map(r => (
+                <div key={r.h} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #1a2540" }}>
+                  <div style={{ color:"#8a9ac0", fontSize:13 }}>{r.icon} {r.msg.split("!")[0]}</div>
+                  <span style={{ color: notifEnabled ? "#22d3a0" : "#2a3248", fontSize:12, fontWeight:700 }}>
+                    {notifEnabled ? `✓ ${r.label}` : r.label}
+                  </span>
+                </div>
+              ))}
+              <button onClick={toggleNotif} style={{
+                marginTop:14, width:"100%",
+                background: notifEnabled ? "#0f2a1a" : "#1e2535",
+                border:`1px solid ${notifEnabled ? "#22d3a040" : "#2a3248"}`,
+                borderRadius:12, padding:"11px",
+                color: notifEnabled ? "#22d3a0" : "#4b5a7a",
+                fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"
+              }}>
+                {notifEnabled ? "✓ Active — Tap to Disable" : "Enable Reminders"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── HISTORY ── */}
+        {tab === 3 && (
+          <div className="slide-up" style={{ padding:"16px" }}>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:"#f0f4ff", marginBottom:2 }}>History</div>
+            <div style={{ color:"#3a4a68", fontSize:12, marginBottom:20 }}>Your past nutrition logs</div>
+
+            {Object.keys(grouped).length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 16px", color:"#2a3248" }}>
+                <div style={{ fontSize:40, marginBottom:10 }}>📋</div>
+                <div style={{ fontWeight:600, color:"#3a4a68" }}>No history yet</div>
+                <div style={{ fontSize:12, marginTop:4, color:"#1e2535" }}>Start logging meals to build your history</div>
+              </div>
+            ) : Object.entries(grouped).map(([date, entries]) => {
+              const dc  = entries.reduce((s,e) => s + e.calories, 0);
+              const dp  = entries.reduce((s,e) => s + e.protein,  0);
+              const isToday = date === today;
+              const pct = Math.min(dc / goals.calories, 1);
+              return (
+                <div key={date} style={{ marginBottom:20 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                    <div style={{ color: isToday ? "#22d3a0" : "#4b5a7a", fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase" }}>
+                      {isToday ? "TODAY" : new Date(date+"T12:00:00").toLocaleDateString("en-US",{ weekday:"short", month:"short", day:"numeric" }).toUpperCase()}
+                    </div>
+                    <div style={{ display:"flex", gap:10 }}>
+                      <span style={{ color:"#f59e0b", fontSize:12, fontWeight:700 }}>{dc} kcal</span>
+                      <span style={{ color:"#22d3a0", fontSize:12, fontWeight:700 }}>{dp}g prot</span>
+                    </div>
+                  </div>
+                  <div style={{ background:"#1a2540", borderRadius:4, height:4, marginBottom:10, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${pct*100}%`, background:"linear-gradient(90deg,#f59e0b,#22d3a0)", borderRadius:4, transition:"width 0.6s" }}/>
+                  </div>
+                  {entries.map(e => (
+                    <div key={e.id} style={{ background:"#131d2e", borderRadius:12, padding:"10px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", border:"1px solid #1a2540" }}>
+                      <div>
+                        <span style={{ color:"#8a9ac0", fontSize:13 }}>{e.name}</span>
+                        <span style={{ color:"#2a3a58", fontSize:10, marginLeft:8 }}>{e.time}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:10 }}>
+                        <span style={{ color:"#f59e0b", fontSize:12, fontWeight:600 }}>{e.calories}</span>
+                        <span style={{ color:"#22d3a0", fontSize:12, fontWeight:600 }}>{e.protein}g</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{ background:"#0d1120", borderTop:"1px solid #1a2540", display:"flex", padding:"8px 6px 16px", flexShrink:0 }}>
+        {[
+          { icon:"📊", label:"Today"   },
+          { icon:"➕", label:"Add"     },
+          { icon:"🎯", label:"Goals"   },
+          { icon:"📋", label:"History" },
+        ].map((t,i) => (
+          <button key={i} onClick={() => setTab(i)} style={{
+            flex:1, background:"none", border:"none", cursor:"pointer",
+            display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 4px"
+          }}>
+            <div style={{
+              width:44, height:44, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22,
+              background: tab===i ? "#22d3a015" : "transparent",
+              border:     tab===i ? "1px solid #22d3a030" : "1px solid transparent",
+              transition: "all 0.2s"
+            }}>{t.icon}</div>
+            <span style={{ fontSize:10, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color: tab===i ? "#22d3a0" : "#2a3a58" }}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js")
+        .then(r => console.log("SW registered:", r.scope))
+        .catch(e => console.log("SW error:", e));
+    });
+  }
+</script>
+</body>
+</html>
